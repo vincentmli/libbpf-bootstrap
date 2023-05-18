@@ -10,8 +10,10 @@
 
 #include "dnsrrl.skel.h"
 
-//#define DEFAULT_IFACE "lo"
-//
+
+#define IFINDEX_LO 1
+#define XDP_FLAGS_REPLACE		(1U << 4)
+
 static volatile bool exiting = false;
 
 static void sig_handler(int sig)
@@ -26,6 +28,8 @@ static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va
 
 int main(int argc, char **argv)
 {
+	int fd;
+	LIBBPF_OPTS(bpf_xdp_attach_opts, opts);
 	struct dnsrrl_bpf *skel;
 
 	/* Set up libbpf errors and debug info callback */
@@ -41,6 +45,11 @@ int main(int argc, char **argv)
 		fprintf(stderr, "Failed to open and load BPF skeleton\n");
 		return 1;
 	}
+
+	fd = bpf_program__fd(skel->progs.dns_rrl);
+
+	if (bpf_xdp_attach(IFINDEX_LO, fd, XDP_FLAGS_REPLACE, &opts))
+		fprintf(stderr, "ERROR: attaching xdp program to device\n");
 
 	printf("Press Ctrl-C to stop and unload.\n");
 	while (!exiting)
