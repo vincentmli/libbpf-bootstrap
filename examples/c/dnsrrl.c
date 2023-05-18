@@ -46,7 +46,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	fd = bpf_program__fd(skel->progs.dns_rrl);
+	fd = bpf_program__fd(skel->progs.xdp_dns_cookies);
 
 	if (bpf_xdp_attach(IFINDEX_LO, fd, XDP_FLAGS_REPLACE, &opts))
 		fprintf(stderr, "ERROR: attaching xdp program to device\n");
