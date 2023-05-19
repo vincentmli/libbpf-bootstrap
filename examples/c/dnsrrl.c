@@ -6,7 +6,9 @@
 #include <assert.h>
 #include <signal.h>
 #include <bpf/bpf.h>
-#include <bpf/libbpf.h>
+
+#include "bpf/libbpf.h"
+#include "bpf/btf.h"
 #include "dnsrrl.skel.h"
 
 #define IFINDEX_LO 1
@@ -17,8 +19,8 @@
 #endif
 #define DEFAULT_IPv4_VIP_PINPATH "/sys/fs/bpf/rrl_exclude_v4_prefixes"
 #define DEFAULT_IPv6_VIP_PINPATH "/sys/fs/bpf/rrl_exclude_v6_prefixes"
-#define DEFAULT_RATELIMIT 10
-#define DEFAULT_CPUS 1
+#define DEFAULT_RATELIMIT 0x20
+#define DEFAULT_CPUS 0x2
 
 #define EXCLv4_TBL "exclude_v4_prefixes"
 #define EXCLv6_TBL "exclude_v6_prefixes"
@@ -60,8 +62,20 @@ int main(int argc, char **argv)
 	unsigned int ratelimit = DEFAULT_RATELIMIT;
 	unsigned int cpus = DEFAULT_CPUS;
 
+	struct bpf_map *map;
+	struct btf *btf;
+	const struct btf_type *datasec;
+	struct btf_var_secinfo *infos;
+	int map_fd;
+	__s32 datasec_id;
+	int zero = 0;
+	int i, err;
+	size_t sz;
+	__u8 *buff = NULL;
+
 	LIBBPF_OPTS(bpf_xdp_attach_opts, opts);
 	struct dnsrrl_bpf *skel;
+
 
 	while ((opt = getopt(argc, argv, "hi:4:6:r:c:")) != -1) {
 		switch(opt) {
@@ -103,9 +117,82 @@ int main(int argc, char **argv)
 	/* Load and verify BPF programs*/
 	skel = dnsrrl_bpf__open_and_load();
 	if (!skel) {
-		fprintf(stderr, "Failed to open and load BPF skeleton\n");
+		fprintf(stderr, "Failed to open and load skeleton\n");
 		return 1;
 	}
+
+	map = bpf_object__find_map_by_name(skel->obj, ".data");
+	if (!map) {
+		fprintf(stderr, "Failed to find .data \n");
+		return 1;
+	}
+
+	map_fd = bpf_map__fd(map);
+	if (libbpf_get_error(map_fd)) {
+		fprintf(stderr, "Failed to find .data map_fd\n");
+		return 1;
+	}
+
+	// Create buffer the size of .data
+	sz = bpf_map__value_size(map);
+	buff = malloc(sz);
+	if (!buff)
+		return 1;
+
+	// Read .data into the buffer
+	err = bpf_map_lookup_elem(map_fd, &zero, buff);
+	if (err)
+		return 1;
+
+	// Get BTF, we need it do find out the memory layout of .data
+	btf = bpf_object__btf(skel->obj);
+	if (libbpf_get_error(btf)) {
+		fprintf(stderr, "Failed to find obj btf\n");
+		return 1;
+	}
+
+	// Get the type ID of the datasection of .data
+	datasec_id = btf__find_by_name(btf, ".data");
+	if (libbpf_get_error(datasec_id)) {
+		fprintf(stderr, "Failed to find btf datasec_id\n");
+		return 1;
+	}
+
+	// Get the actual BTF type from the ID
+	datasec = btf__type_by_id(btf, datasec_id);
+	if (libbpf_get_error(datasec)) {
+		fprintf(stderr, "Failed to find btf datasec\n");
+		return 1;
+	}
+	// Get all secinfos, each of which will be a global variable
+	infos = btf_var_secinfos(datasec);
+	// Loop over all sections
+	for(i = 0; i < btf_vlen(datasec); i++) {
+		// Get the BTF type of the current var
+		const struct btf_type *t = btf__type_by_id(btf, infos[i].type);
+		// Get the name of the global variable
+		const char *name = btf__name_by_offset(btf, t->name_off);
+		// If it matches the name of the var we want to change at runtime
+		if (!strcmp(name, "ratelimit")) {
+            // Overwrite its value (this code assumes just a single byte)
+            // for multibyte values you will obviusly have to edit more bytes.
+            // the total size of the var can be gotten from infos[i]->size
+			fprintf(stderr, "found  %s\n", name);
+			buff[infos[i].offset] = ratelimit;
+		} else if (!strcmp(name, "numcpus")) {
+			fprintf(stderr, "found  %s\n", name);
+			buff[infos[i].offset] = cpus;
+		}
+	}
+
+    // Write the updated datasection to the map
+	err = bpf_map_update_elem(map_fd, &zero, buff, 0);
+	//here returns negative value, but the map value is updated
+	if (libbpf_get_error(err)) {
+		fprintf(stderr, "Failed to update .data map : %ld\n", libbpf_get_error(err));
+	}
+
+	free(buff);
 
 	fd = bpf_program__fd(skel->progs.xdp_dns_cookies);
 

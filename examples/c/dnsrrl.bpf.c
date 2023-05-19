@@ -110,6 +110,9 @@ struct meta_data {
 #define THRESHOLD ((RRL_RATELIMIT) / (RRL_N_CPUS))
 #define FRAME_SIZE   1000000000
 
+static volatile uint16_t ratelimit = 10;
+static volatile uint8_t numcpus = 2;
+
 #define RRL_MASK_CONCAT1(X)  RRL_MASK ## X
 #define RRL_MASK_CONCAT2(X)  RRL_MASK_CONCAT1(X)
 #define RRL_IPv4_MASK        RRL_MASK_CONCAT2(RRL_IPv4_PREFIX_LEN)
@@ -520,7 +523,7 @@ do_rate_limit(struct udphdr *udp, struct dnshdr *dns, struct bucket *b)
 		b->n_packets = 0;
 	}
 
-	if (b->n_packets < THRESHOLD)
+	if (b->n_packets < ratelimit / numcpus)
 		return XDP_PASS;
 
 #if  RRL_SLIP == 0
