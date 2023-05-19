@@ -17,6 +17,8 @@
 #endif
 #define DEFAULT_IPv4_VIP_PINPATH "/sys/fs/bpf/rrl_exclude_v4_prefixes"
 #define DEFAULT_IPv6_VIP_PINPATH "/sys/fs/bpf/rrl_exclude_v6_prefixes"
+#define DEFAULT_RATELIMIT 10
+#define DEFAULT_CPUS 1
 
 #define EXCLv4_TBL "exclude_v4_prefixes"
 #define EXCLv6_TBL "exclude_v6_prefixes"
@@ -36,8 +38,11 @@ static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va
 void print_usage(FILE *out, const char *program_name)
 {
 	fprintf( out
-	       , "Usage: %s [-i interface] [-4 IPv4 V.I.P. pinpath]"
-	                                 " [-6 IPv6 V.I.P. pinpath]\n"
+	       , "Usage: %s [-i interface]\n"
+				" [-4 IPv4 V.I.P. pinpath]\n"
+	                        " [-6 IPv6 V.I.P. pinpath]\n"
+	                        " [-r number of DNS Response Ratelimit]\n"
+	                        " [-c number of CPUs]\n"
 	         "Default values:\n"
 	         "  - interface: " DEFAULT_IFACE "\n"
 	         "  - IPv4 V.I.P. pinpath: \"" DEFAULT_IPv4_VIP_PINPATH "\"\n"
@@ -52,11 +57,13 @@ int main(int argc, char **argv)
 	const char *exclude_v6_pinpath = DEFAULT_IPv6_VIP_PINPATH;
 	int fd, opt = -1;
 	unsigned int ifindex = 0;
+	unsigned int ratelimit = DEFAULT_RATELIMIT;
+	unsigned int cpus = DEFAULT_CPUS;
 
 	LIBBPF_OPTS(bpf_xdp_attach_opts, opts);
 	struct dnsrrl_bpf *skel;
 
-	while ((opt = getopt(argc, argv, "hi:4:6:")) != -1) {
+	while ((opt = getopt(argc, argv, "hi:4:6:r:c:")) != -1) {
 		switch(opt) {
 		case 'i':
 			ifname = optarg;
@@ -66,6 +73,12 @@ int main(int argc, char **argv)
 			break;
 		case '6':
 			exclude_v4_pinpath = optarg;
+			break;
+		case 'r':
+			ratelimit = optarg;
+			break;
+		case 'c':
+			cpus = optarg;
 			break;
 		case 'h':
 			print_usage(stdout, argv[0]);
