@@ -89,10 +89,10 @@ int main(int argc, char **argv)
 			exclude_v4_pinpath = optarg;
 			break;
 		case 'r':
-			ratelimit = optarg;
+			ratelimit = atoi(optarg);
 			break;
 		case 'c':
-			cpus = optarg;
+			cpus = atoi(optarg);
 			break;
 		case 'h':
 			print_usage(stdout, argv[0]);
@@ -128,7 +128,7 @@ int main(int argc, char **argv)
 	}
 
 	map_fd = bpf_map__fd(map);
-	if (libbpf_get_error(map_fd)) {
+	if (!map_fd) {
 		fprintf(stderr, "Failed to find .data map_fd\n");
 		return 1;
 	}
@@ -153,7 +153,7 @@ int main(int argc, char **argv)
 
 	// Get the type ID of the datasection of .data
 	datasec_id = btf__find_by_name(btf, ".data");
-	if (libbpf_get_error(datasec_id)) {
+	if (!datasec_id) {
 		fprintf(stderr, "Failed to find btf datasec_id\n");
 		return 1;
 	}
@@ -173,23 +173,22 @@ int main(int argc, char **argv)
 		// Get the name of the global variable
 		const char *name = btf__name_by_offset(btf, t->name_off);
 		// If it matches the name of the var we want to change at runtime
-		if (!strcmp(name, "ratelimit")) {
             // Overwrite its value (this code assumes just a single byte)
             // for multibyte values you will obviusly have to edit more bytes.
-            // the total size of the var can be gotten from infos[i]->size
-			fprintf(stderr, "found  %s\n", name);
-			buff[infos[i].offset] = ratelimit;
+            // the total size of the var can be gotten from infos[i]->size, use
+	    // memcpy for multiple bytes
+		if (!strcmp(name, "ratelimit")) {
+			memcpy(&buff[infos[i].offset], &ratelimit, buff[infos[i].size]);
 		} else if (!strcmp(name, "numcpus")) {
-			fprintf(stderr, "found  %s\n", name);
-			buff[infos[i].offset] = cpus;
+			memcpy(&buff[infos[i].offset], &cpus, buff[infos[i].size]);
 		}
 	}
 
     // Write the updated datasection to the map
 	err = bpf_map_update_elem(map_fd, &zero, buff, 0);
 	//here returns negative value, but the map value is updated
-	if (libbpf_get_error(err)) {
-		fprintf(stderr, "Failed to update .data map : %ld\n", libbpf_get_error(err));
+	if (err) {
+		fprintf(stderr, "Failed to update .data map : %d\n", err);
 	}
 
 	free(buff);
