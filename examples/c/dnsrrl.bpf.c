@@ -569,89 +569,102 @@ int xdp_dns_cookies(struct xdp_md *ctx)
 	md->ip_pos = c.pos - (void *)eth;
 
 	if (md->eth_proto == __bpf_htons(ETH_P_IPV6)) {
-		if (!(ipv6 = parse_ipv6hdr(&c))
-		||  !(ipv6->nexthdr == IPPROTO_UDP)
-	 	||  !(udp = parse_udphdr(&c))
-		||  !(udp->dest == __bpf_htons(DNS_PORT))
-	 	||  !(dns = parse_dnshdr(&c)))
-	 		return XDP_PASS; /* Not DNS */
+		if (!(ipv6 = parse_ipv6hdr(&c)))
+			return XDP_PASS; /* Not IPV6 */
+		switch (ipv6->nexthdr) {
+		case IPPROTO_UDP:
+			if (!(udp = parse_udphdr(&c))
+			|| !(udp->dest == __bpf_htons(DNS_PORT))
+			|| !(dns = parse_dnshdr(&c)))
+				return XDP_PASS; /* Not DNS */
+			// search for the prefix in the LPM trie
+			struct {
+				__u32        prefixlen;
+				struct in6_addr ipv6_addr;
+			} key6 = {
+				.prefixlen = 64,
+				.ipv6_addr = ipv6->daddr
+			};
+			// if the prefix matches, we exclude it from rate limiting
+			if ((count=bpf_map_lookup_elem(&exclude_v6_prefixes, &key6))) {
+				lock_xadd(count, 1);
+				return XDP_PASS;
+			}
+			if (dns->flags.as_bits_and_pieces.qr
+			||  dns->qdcount != __bpf_htons(1)
+			||  dns->ancount || dns->nscount
+			||  dns->arcount >  __bpf_htons(2)
+			||  !skip_dname(&c)
+			||  !parse_dns_qrr(&c))
+				return XDP_ABORTED; // Return FORMERR?
 
-		// search for the prefix in the LPM trie
-		struct {
-			__u32        prefixlen;
-			struct in6_addr ipv6_addr;
-		} key6 = {
-			.prefixlen = 64,
-			.ipv6_addr = ipv6->daddr
-		};
-		// if the prefix matches, we exclude it from rate limiting
-		if ((count=bpf_map_lookup_elem(&exclude_v6_prefixes, &key6))) {
-			lock_xadd(count, 1);
-			return XDP_PASS;
+			if (dns->arcount == 0) {
+				bpf_tail_call(ctx, &jmp_rate_table, DO_RATE_LIMIT_IPV6);
+				return XDP_PASS;
+			}
+			if (c.pos + 1 > c.end
+			||  *(__u8 *)c.pos != 0)
+				return XDP_ABORTED; // Return FORMERR?
+
+			md->opt_pos = c.pos + 1 - (void *)(ipv6 + 1);
+			bpf_tail_call(ctx, &jmp_cookie_table, COOKIE_VERIFY_IPv6);
+
+			break;
+
+		case IPPROTO_TCP:
+			break;
 		}
-		if (dns->flags.as_bits_and_pieces.qr
-		||  dns->qdcount != __bpf_htons(1)
-		||  dns->ancount || dns->nscount
-		||  dns->arcount >  __bpf_htons(2)
-		||  !skip_dname(&c)
-		||  !parse_dns_qrr(&c))
-			return XDP_ABORTED; // Return FORMERR?
-
-		if (dns->arcount == 0) {
-			bpf_tail_call(ctx, &jmp_rate_table, DO_RATE_LIMIT_IPV6);
-			return XDP_PASS;
-		}
-		if (c.pos + 1 > c.end
-		||  *(__u8 *)c.pos != 0)
-			return XDP_ABORTED; // Return FORMERR?
-
-		md->opt_pos = c.pos + 1 - (void *)(ipv6 + 1);
-		bpf_tail_call(ctx, &jmp_cookie_table, COOKIE_VERIFY_IPv6);
-		
 	} else if (md->eth_proto == __bpf_htons(ETH_P_IP)) {
-		if (!(ipv4 = parse_iphdr(&c))
-		||  !(ipv4->protocol == IPPROTO_UDP)
-	 	||  !(udp = parse_udphdr(&c))
-		||  !(udp->dest == __bpf_htons(DNS_PORT))
-	 	||  !(dns = parse_dnshdr(&c)))
-	 		return XDP_PASS; /* Not DNS */
-	 		
-		// search for the prefix in the LPM trie
-		struct {
-			__u32 prefixlen;
-			__u32 ipv4_addr;
-		} key4 = {
-			.prefixlen = 32,
-			.ipv4_addr = ipv4->saddr
-		};
+		if (!(ipv4 = parse_iphdr(&c)))
+			return XDP_PASS; /* Not IPv4 */
+		switch (ipv4->protocol) {
+		case IPPROTO_UDP:
+			if (!(udp = parse_udphdr(&c))
+			|| !(udp->dest == __bpf_htons(DNS_PORT))
+			|| !(dns = parse_dnshdr(&c)))
+				return XDP_PASS; /* Not DNS */
+			// search for the prefix in the LPM trie
+			struct {
+				__u32 prefixlen;
+				__u32 ipv4_addr;
+			} key4 = {
+				.prefixlen = 32,
+				.ipv4_addr = ipv4->saddr
+			};
 
-		// if the prefix matches, we exclude it from rate limiting
-		if ((count=bpf_map_lookup_elem(&exclude_v4_prefixes, &key4))) {
-			lock_xadd(count, 1);
-			return XDP_PASS;
+			// if the prefix matches, we exclude it from rate limiting
+			if ((count=bpf_map_lookup_elem(&exclude_v4_prefixes, &key4))) {
+				lock_xadd(count, 1);
+				return XDP_PASS;
+			}
+
+			if (dns->flags.as_bits_and_pieces.qr
+			||  dns->qdcount != __bpf_htons(1)
+			||  dns->ancount || dns->nscount
+			||  dns->arcount >  __bpf_htons(2)
+			||  !skip_dname(&c)
+			||  !parse_dns_qrr(&c))
+				return XDP_ABORTED; // return FORMERR?
+
+			if (dns->arcount == 0) {
+				bpf_tail_call(ctx, &jmp_rate_table, DO_RATE_LIMIT_IPV4);
+				return XDP_PASS;
+			}
+			if (c.pos + 1 > c.end
+			||  *(__u8 *)c.pos != 0)
+				return XDP_ABORTED; // Return FORMERR?
+
+			md->opt_pos = c.pos + 1 - (void *)(ipv4 + 1);
+			bpf_tail_call(ctx, &jmp_cookie_table, COOKIE_VERIFY_IPv4);
+
+			break;
+
+		case IPPROTO_TCP:
+			break;
 		}
 
-		if (dns->flags.as_bits_and_pieces.qr
-		||  dns->qdcount != __bpf_htons(1)
-		||  dns->ancount || dns->nscount
-		||  dns->arcount >  __bpf_htons(2)
-		||  !skip_dname(&c)
-		||  !parse_dns_qrr(&c))
-			return XDP_ABORTED; // return FORMERR?
-
-		if (dns->arcount == 0) {
-			bpf_tail_call(ctx, &jmp_rate_table, DO_RATE_LIMIT_IPV4);
-			return XDP_PASS;
-		}
-		if (c.pos + 1 > c.end
-		||  *(__u8 *)c.pos != 0)
-			return XDP_ABORTED; // Return FORMERR?
-
-		md->opt_pos = c.pos + 1 - (void *)(ipv4 + 1);
-		bpf_tail_call(ctx, &jmp_cookie_table, COOKIE_VERIFY_IPv4);
 	}
 	return XDP_PASS;
 }
 
 char _license[] SEC("license") = "GPL";
-
