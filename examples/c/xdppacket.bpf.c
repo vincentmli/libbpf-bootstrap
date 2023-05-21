@@ -45,7 +45,7 @@
 #endif
 
 #include "siphash4bpf.c"
-#include "dnsrrl.h"
+#include "xdppacket.h"
 
 struct meta_data {
 	__u16 eth_proto;
@@ -545,7 +545,7 @@ struct {
 };
 
 SEC("xdp")
-int xdp_dns_cookies(struct xdp_md *ctx)
+int xdp_packet(struct xdp_md *ctx)
 {
 	struct meta_data *md = (void *)(long)ctx->data_meta;
 	struct cursor     c;
