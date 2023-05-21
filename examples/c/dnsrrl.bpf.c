@@ -73,10 +73,6 @@
 
 // do not use libc includes because this causes clang
 // to include 32bit headers on 64bit ( only ) systems.
-typedef __u8  uint8_t;
-typedef __u16 uint16_t;
-typedef __u32 uint32_t;
-typedef __u64 uint64_t;
 #define memcpy __builtin_memcpy
 
 #ifndef __section
@@ -97,10 +93,10 @@ typedef __u64 uint64_t;
 #define COOKIE_VERIFY_IPv4 1
 
 struct meta_data {
-	uint16_t eth_proto;
-	uint16_t ip_pos;
-	uint16_t opt_pos;
-	uint16_t unused;
+	__u16 eth_proto;
+	__u16 ip_pos;
+	__u16 opt_pos;
+	__u16 unused;
 };
 
 #define DNS_PORT        53
@@ -110,8 +106,8 @@ struct meta_data {
 #define THRESHOLD ((RRL_RATELIMIT) / (RRL_N_CPUS))
 #define FRAME_SIZE   1000000000
 
-static volatile uint16_t ratelimit = 10;
-static volatile uint8_t numcpus = 2;
+static volatile __u16 ratelimit = 10;
+static volatile __u8 numcpus = 2;
 
 #define RRL_MASK_CONCAT1(X)  RRL_MASK ## X
 #define RRL_MASK_CONCAT2(X)  RRL_MASK_CONCAT1(X)
@@ -281,13 +277,13 @@ static volatile uint8_t numcpus = 2;
 
 struct ipv4_key {
 	struct   bpf_lpm_trie_key lpm_key;
-	uint8_t  ipv4[4];
+	__u8  ipv4[4];
 };
 
 struct {
 	__uint(type,  BPF_MAP_TYPE_LPM_TRIE);
 	__type(key,   struct ipv4_key);
-	__type(value, uint64_t);
+	__type(value, __u64);
 	__uint(max_entries, 10000);
 //	__uint(pinning, LIBBPF_PIN_BY_NAME);
 	__uint(map_flags, BPF_F_NO_PREALLOC);
@@ -295,13 +291,13 @@ struct {
 
 struct ipv6_key {
 	struct   bpf_lpm_trie_key lpm_key;
-	uint64_t ipv6;
+	__u64 ipv6;
 } __attribute__((packed));
 
 struct {
 	__uint(type,  BPF_MAP_TYPE_LPM_TRIE);
 	__type(key,   struct ipv6_key);
-	__type(value, uint64_t);
+	__type(value, __u64);
 	__uint(max_entries, 10000);
 //        __uint(pinning, LIBBPF_PIN_BY_NAME);
         __uint(map_flags, BPF_F_NO_PREALLOC);
@@ -311,13 +307,13 @@ struct {
  *  Store the time frame
  */
 struct bucket {
-	uint64_t start_time;
-	uint64_t n_packets;
+	__u64 start_time;
+	__u64 n_packets;
 };
 
 struct {
 	__uint(type,  BPF_MAP_TYPE_PERCPU_HASH);
-	__type(key,   uint32_t);
+	__type(key,   __u32);
 	__type(value, struct bucket);
 	__uint(max_entries, RRL_SIZE);
 } state_map __section(".maps");
@@ -344,53 +340,53 @@ struct {
  *  Store the VLAN header
  */
 struct vlanhdr {
-	uint16_t tci;
-	uint16_t encap_proto;
+	__u16 tci;
+	__u16 encap_proto;
 };
 
 /*
  *  Store the DNS header
  */
 struct dnshdr {
-	uint16_t id;
+	__u16 id;
 	union {
 		struct {
-			uint8_t  rd     : 1;
-			uint8_t  tc     : 1;
-			uint8_t  aa     : 1;
-			uint8_t  opcode : 4;
-			uint8_t  qr     : 1;
+			__u8  rd     : 1;
+			__u8  tc     : 1;
+			__u8  aa     : 1;
+			__u8  opcode : 4;
+			__u8  qr     : 1;
 
-			uint8_t  rcode  : 4;
-			uint8_t  cd     : 1;
-			uint8_t  ad     : 1;
-			uint8_t  z      : 1;
-			uint8_t  ra     : 1;
+			__u8  rcode  : 4;
+			__u8  cd     : 1;
+			__u8  ad     : 1;
+			__u8  z      : 1;
+			__u8  ra     : 1;
 		}        as_bits_and_pieces;
-		uint16_t as_value;
+		__u16 as_value;
 	} flags;
-	uint16_t qdcount;
-	uint16_t ancount;
-	uint16_t nscount;
-	uint16_t arcount;
+	__u16 qdcount;
+	__u16 ancount;
+	__u16 nscount;
+	__u16 arcount;
 };
 
 struct dns_qrr {
-        uint16_t qtype;
-        uint16_t qclass;
+        __u16 qtype;
+        __u16 qclass;
 };
 
 struct dns_rr {
-        uint16_t type;
-        uint16_t class;
-        uint32_t ttl;
-        uint16_t rdata_len;
+        __u16 type;
+        __u16 class;
+        __u32 ttl;
+        __u16 rdata_len;
 } __attribute__((packed));
 
 struct option {
-	uint16_t code;
-	uint16_t len;
-	uint8_t  data[];
+	__u16 code;
+	__u16 len;
+	__u8  data[];
 } __attribute__((packed));
 
 
@@ -431,7 +427,7 @@ PARSE_FUNC_DECLARATION(dns_rr)
 PARSE_FUNC_DECLARATION(option)
 
 static __always_inline
-struct ethhdr *parse_eth(struct cursor *c, uint16_t *eth_proto)
+struct ethhdr *parse_eth(struct cursor *c, __u16 *eth_proto)
 {
 	struct ethhdr  *eth;
 
@@ -459,18 +455,18 @@ struct ethhdr *parse_eth(struct cursor *c, uint16_t *eth_proto)
 }
 
 static  inline
-uint8_t *skip_dname(struct cursor *c)
+__u8 *skip_dname(struct cursor *c)
 {
-        uint8_t *dname = c->pos;
-	uint8_t i;
+        __u8 *dname = c->pos;
+	__u8 i;
 
         for (i = 0; i < 128; i++) { /* Maximum 128 labels */
-                uint8_t o;
+                __u8 o;
 
                 if (c->pos + 1 > c->end)
                         return 0;
 
-                o = *(uint8_t *)c->pos;
+                o = *(__u8 *)c->pos;
                 if ((o & 0xC0) == 0xC0) {
                         /* Compression label is last label of dname. */
                         c->pos += 2;
@@ -491,18 +487,18 @@ uint8_t *skip_dname(struct cursor *c)
  *  Recalculate the checksum
  */
 static __always_inline
-void update_checksum(uint16_t *csum, uint16_t old_val, uint16_t new_val)
+void update_checksum(__u16 *csum, __u16 old_val, __u16 new_val)
 {
-	uint32_t new_csum_value;
-	uint32_t new_csum_comp;
-	uint32_t undo;
+	__u32 new_csum_value;
+	__u32 new_csum_comp;
+	__u32 undo;
 
-	undo = ~((uint32_t)*csum) + ~((uint32_t)old_val);
-	new_csum_value = undo + (undo < ~((uint32_t)old_val)) + (uint32_t)new_val;
-	new_csum_comp = new_csum_value + (new_csum_value < ((uint32_t)new_val));
+	undo = ~((__u32)*csum) + ~((__u32)old_val);
+	new_csum_value = undo + (undo < ~((__u32)old_val)) + (__u32)new_val;
+	new_csum_comp = new_csum_value + (new_csum_value < ((__u32)new_val));
 	new_csum_comp = (new_csum_comp & 0xFFFF) + (new_csum_comp >> 16);
 	new_csum_comp = (new_csum_comp & 0xFFFF) + (new_csum_comp >> 16);
-	*csum = (uint16_t)~new_csum_comp;
+	*csum = (__u16)~new_csum_comp;
 }
 
 static __always_inline enum xdp_action
@@ -512,8 +508,8 @@ do_rate_limit(struct udphdr *udp, struct dnshdr *dns, struct bucket *b)
 	b->n_packets++;
 
 	// get the current and elapsed time
-	uint64_t now = bpf_ktime_get_ns();
-	uint64_t elapsed = now - b->start_time;
+	__u64 now = bpf_ktime_get_ns();
+	__u64 elapsed = now - b->start_time;
 
 	// make sure the elapsed time is set and not outside of the frame
 	if (b->start_time == 0 || elapsed >= FRAME_SIZE)
@@ -534,7 +530,7 @@ do_rate_limit(struct udphdr *udp, struct dnshdr *dns, struct bucket *b)
 		return XDP_DROP;
 # endif
 	//save the old header values
-	uint16_t old_val = dns->flags.as_value;
+	__u16 old_val = dns->flags.as_value;
 
 	// change the DNS flags
 	dns->flags.as_bits_and_pieces.ad = 0;
@@ -623,7 +619,7 @@ int xdp_do_rate_limit_ipv4(struct xdp_md *ctx)
 	struct cursor     c;
 	struct meta_data *md = (void *)(long)ctx->data_meta;
 	struct iphdr     *ipv4;
-	uint32_t          ipv4_addr;
+	__u32          ipv4_addr;
 	struct udphdr    *udp;
 	struct dnshdr    *dns;
 
@@ -665,8 +661,8 @@ int xdp_do_rate_limit_ipv4(struct xdp_md *ctx)
 struct {
         __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
         __uint(max_entries, 3);
-        __uint(key_size, sizeof(uint32_t));
-        __uint(value_size, sizeof(uint32_t));
+        __uint(key_size, sizeof(__u32));
+        __uint(value_size, sizeof(__u32));
         __array(values, int (void *));
 } jmp_rate_table SEC(".maps") = {
         .values = {
@@ -678,13 +674,13 @@ struct {
 static __always_inline
 int cookie_verify_ipv6(struct cursor *c, struct ipv6hdr *ipv6)
 {
-	uint8_t  input[32];
-	uint64_t hash;
+	__u8  input[32];
+	__u64 hash;
 
 	memcpy(input, c->pos, 16);
 	memcpy(input + 16, &ipv6->saddr, 16);
-	siphash_ipv6(input, (uint8_t *)&hash);
-	return hash == ((uint64_t *)c->pos)[2];
+	siphash_ipv6(input, (__u8 *)&hash);
+	return hash == ((__u64 *)c->pos)[2];
 }
 
 SEC("xdp")
@@ -694,8 +690,8 @@ int xdp_cookie_verify_ipv6(struct xdp_md *ctx)
 	struct meta_data *md = (void *)(long)ctx->data_meta;
 	struct ipv6hdr   *ipv6;
 	struct dns_rr    *opt_rr;
-	uint16_t          rdata_len;
-	uint8_t           i;
+	__u16          rdata_len;
+	__u8           i;
 
 	cursor_init(&c, ctx);
 	if ((void *)(md + 1) > c.pos || md->ip_pos > 24)
@@ -713,7 +709,7 @@ int xdp_cookie_verify_ipv6(struct xdp_md *ctx)
 	rdata_len = __bpf_ntohs(opt_rr->rdata_len);
 	for (i = 0; i < 10 && rdata_len >= 28; i++) {
 		struct option *opt;
-		uint16_t       opt_len;
+		__u16       opt_len;
 
 		if (!(opt = parse_option(&c)))
 			return XDP_ABORTED;
@@ -750,13 +746,13 @@ int xdp_cookie_verify_ipv6(struct xdp_md *ctx)
 static __always_inline
 int cookie_verify_ipv4(struct cursor *c, struct iphdr *ipv4)
 {
-	uint8_t  input[20];
-	uint64_t hash;
+	__u8  input[20];
+	__u64 hash;
 
 	memcpy(input, c->pos, 16);
 	memcpy(input + 16, &ipv4->saddr, 4);
-	siphash_ipv4(input, (uint8_t *)&hash);
-	return hash == ((uint64_t *)c->pos)[2];
+	siphash_ipv4(input, (__u8 *)&hash);
+	return hash == ((__u64 *)c->pos)[2];
 }
 
 SEC("xdp")
@@ -766,8 +762,8 @@ int xdp_cookie_verify_ipv4(struct xdp_md *ctx)
 	struct meta_data *md = (void *)(long)ctx->data_meta;
 	struct iphdr     *ipv4;
 	struct dns_rr    *opt_rr;
-	uint16_t          rdata_len;
-	uint8_t           i;
+	__u16          rdata_len;
+	__u8           i;
 
 	cursor_init(&c, ctx);
 	if ((void *)(md + 1) > c.pos || md->ip_pos > 24)
@@ -785,7 +781,7 @@ int xdp_cookie_verify_ipv4(struct xdp_md *ctx)
 	rdata_len = __bpf_ntohs(opt_rr->rdata_len);
 	for (i = 0; i < 10 && rdata_len >= 28; i++) {
 		struct option *opt;
-		uint16_t       opt_len;
+		__u16       opt_len;
 
 		if (!(opt = parse_option(&c)))
 			return XDP_ABORTED;
@@ -821,8 +817,8 @@ int xdp_cookie_verify_ipv4(struct xdp_md *ctx)
 struct {
         __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
         __uint(max_entries, 3);
-        __uint(key_size, sizeof(uint32_t));
-        __uint(value_size, sizeof(uint32_t));
+        __uint(key_size, sizeof(__u32));
+        __uint(value_size, sizeof(__u32));
         __array(values, int (void *));
 } jmp_cookie_table SEC(".maps") = {
         .values = {
@@ -841,7 +837,7 @@ int xdp_dns_cookies(struct xdp_md *ctx)
 	struct iphdr     *ipv4;
 	struct udphdr    *udp;
 	struct dnshdr    *dns;
-	uint64_t         *count;
+	__u64         *count;
 
 	if (bpf_xdp_adjust_meta(ctx, -(int)sizeof(struct meta_data)))
 		return XDP_PASS;
@@ -865,7 +861,7 @@ int xdp_dns_cookies(struct xdp_md *ctx)
 
 		// search for the prefix in the LPM trie
 		struct {
-			uint32_t        prefixlen;
+			__u32        prefixlen;
 			struct in6_addr ipv6_addr;
 		} key6 = {
 			.prefixlen = 64,
@@ -889,7 +885,7 @@ int xdp_dns_cookies(struct xdp_md *ctx)
 			return XDP_PASS;
 		}
 		if (c.pos + 1 > c.end
-		||  *(uint8_t *)c.pos != 0)
+		||  *(__u8 *)c.pos != 0)
 			return XDP_ABORTED; // Return FORMERR?
 
 		md->opt_pos = c.pos + 1 - (void *)(ipv6 + 1);
@@ -905,8 +901,8 @@ int xdp_dns_cookies(struct xdp_md *ctx)
 	 		
 		// search for the prefix in the LPM trie
 		struct {
-			uint32_t prefixlen;
-			uint32_t ipv4_addr;
+			__u32 prefixlen;
+			__u32 ipv4_addr;
 		} key4 = {
 			.prefixlen = 32,
 			.ipv4_addr = ipv4->saddr
@@ -931,7 +927,7 @@ int xdp_dns_cookies(struct xdp_md *ctx)
 			return XDP_PASS;
 		}
 		if (c.pos + 1 > c.end
-		||  *(uint8_t *)c.pos != 0)
+		||  *(__u8 *)c.pos != 0)
 			return XDP_ABORTED; // Return FORMERR?
 
 		md->opt_pos = c.pos + 1 - (void *)(ipv4 + 1);
