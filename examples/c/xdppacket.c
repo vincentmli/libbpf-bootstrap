@@ -9,7 +9,7 @@
 
 #include "bpf/libbpf.h"
 #include "bpf/btf.h"
-#include "dnsrrl.skel.h"
+#include "xdppacket.skel.h"
 
 #define IFINDEX_LO 1
 #define XDP_FLAGS_REPLACE		(1U << 4)
@@ -52,7 +52,7 @@ void print_usage(FILE *out, const char *program_name)
 	       , program_name);
 }
 
-static int datasec_map_rewrite(struct dnsrrl_bpf *skel, unsigned int *ratelimit, unsigned int *cpus)
+static int datasec_map_rewrite(struct xdppacket_bpf *skel, unsigned int *ratelimit, unsigned int *cpus)
 {
 	struct bpf_map *map;
 	struct btf *btf;
@@ -152,7 +152,7 @@ int main(int argc, char **argv)
 	unsigned int cpus = DEFAULT_CPUS;
 
 	LIBBPF_OPTS(bpf_xdp_attach_opts, opts);
-	struct dnsrrl_bpf *skel;
+	struct xdppacket_bpf *skel;
 
 	while ((opt = getopt(argc, argv, "hi:4:6:r:c:")) != -1) {
 		switch(opt) {
@@ -192,7 +192,7 @@ int main(int argc, char **argv)
 	signal(SIGTERM, sig_handler);
 
 	/* Load and verify BPF programs*/
-	skel = dnsrrl_bpf__open_and_load();
+	skel = xdppacket_bpf__open_and_load();
 	if (!skel) {
 		fprintf(stderr, "Failed to open and load skeleton\n");
 		return 1;
@@ -201,7 +201,7 @@ int main(int argc, char **argv)
 	//rewrite .data global variable map value
 	datasec_map_rewrite(skel, &ratelimit, &cpus);
 
-	fd = bpf_program__fd(skel->progs.xdp_dns_cookies);
+	fd = bpf_program__fd(skel->progs.xdp_packet);
 
 	if (bpf_xdp_attach(ifindex, fd, XDP_FLAGS_REPLACE, &opts))
 		fprintf(stderr, "ERROR: attaching xdp program to device\n");
