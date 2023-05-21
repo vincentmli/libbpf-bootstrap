@@ -52,16 +52,8 @@ void print_usage(FILE *out, const char *program_name)
 	       , program_name);
 }
 
-int main(int argc, char **argv)
+static int datasec_map_rewrite(struct dnsrrl_bpf *skel, unsigned int *ratelimit, unsigned int *cpus)
 {
-	const char *ifname = DEFAULT_IFACE;
-	const char *exclude_v4_pinpath = DEFAULT_IPv4_VIP_PINPATH;
-	const char *exclude_v6_pinpath = DEFAULT_IPv6_VIP_PINPATH;
-	int fd, opt = -1;
-	unsigned int ifindex = 0;
-	unsigned int ratelimit = DEFAULT_RATELIMIT;
-	unsigned int cpus = DEFAULT_CPUS;
-
 	struct bpf_map *map;
 	struct btf *btf;
 	const struct btf_type *datasec;
@@ -72,54 +64,6 @@ int main(int argc, char **argv)
 	int i, err;
 	size_t sz;
 	__u8 *buff = NULL;
-
-	LIBBPF_OPTS(bpf_xdp_attach_opts, opts);
-	struct dnsrrl_bpf *skel;
-
-
-	while ((opt = getopt(argc, argv, "hi:4:6:r:c:")) != -1) {
-		switch(opt) {
-		case 'i':
-			ifname = optarg;
-			break;
-		case '4':
-			exclude_v4_pinpath = optarg;
-			break;
-		case '6':
-			exclude_v4_pinpath = optarg;
-			break;
-		case 'r':
-			ratelimit = atoi(optarg);
-			break;
-		case 'c':
-			cpus = atoi(optarg);
-			break;
-		case 'h':
-			print_usage(stdout, argv[0]);
-			exit(EXIT_SUCCESS);
-		default:
-			fprintf(stderr, "OPT: %d ('%c')\n", opt, (char)opt);
-			print_usage(stderr, argv[0]);
-			exit(EXIT_FAILURE);
-		}
-	}
-	if (!(ifindex = if_nametoindex(ifname)))
-		fprintf(stderr, "ERROR: error finding device %s: %s\n"
-		              , ifname, strerror(errno));
-
-	/* Set up libbpf errors and debug info callback */
-	libbpf_set_print(libbpf_print_fn);
-
-	/* Cleaner handling of Ctrl-C */
-	signal(SIGINT, sig_handler);
-	signal(SIGTERM, sig_handler);
-
-	/* Load and verify BPF programs*/
-	skel = dnsrrl_bpf__open_and_load();
-	if (!skel) {
-		fprintf(stderr, "Failed to open and load skeleton\n");
-		return 1;
-	}
 
 	map = bpf_object__find_map_by_name(skel->obj, ".data");
 	if (!map) {
@@ -178,9 +122,9 @@ int main(int argc, char **argv)
             // the total size of the var can be gotten from infos[i]->size, use
 	    // memcpy for multiple bytes
 		if (!strcmp(name, "ratelimit")) {
-			memcpy(&buff[infos[i].offset], &ratelimit, buff[infos[i].size]);
+			memcpy(&buff[infos[i].offset], ratelimit, buff[infos[i].size]);
 		} else if (!strcmp(name, "numcpus")) {
-			memcpy(&buff[infos[i].offset], &cpus, buff[infos[i].size]);
+			memcpy(&buff[infos[i].offset], cpus, buff[infos[i].size]);
 		}
 	}
 
@@ -189,9 +133,73 @@ int main(int argc, char **argv)
 	//here returns negative value, but the map value is updated
 	if (err) {
 		fprintf(stderr, "Failed to update .data map : %d\n", err);
+		return err;
 	}
 
 	free(buff);
+
+	return 0;
+}
+
+int main(int argc, char **argv)
+{
+	const char *ifname = DEFAULT_IFACE;
+	const char *exclude_v4_pinpath = DEFAULT_IPv4_VIP_PINPATH;
+	const char *exclude_v6_pinpath = DEFAULT_IPv6_VIP_PINPATH;
+	int fd, opt = -1;
+	unsigned int ifindex = 0;
+	unsigned int ratelimit = DEFAULT_RATELIMIT;
+	unsigned int cpus = DEFAULT_CPUS;
+
+	LIBBPF_OPTS(bpf_xdp_attach_opts, opts);
+	struct dnsrrl_bpf *skel;
+
+	while ((opt = getopt(argc, argv, "hi:4:6:r:c:")) != -1) {
+		switch(opt) {
+		case 'i':
+			ifname = optarg;
+			break;
+		case '4':
+			exclude_v4_pinpath = optarg;
+			break;
+		case '6':
+			exclude_v4_pinpath = optarg;
+			break;
+		case 'r':
+			ratelimit = atoi(optarg);
+			break;
+		case 'c':
+			cpus = atoi(optarg);
+			break;
+		case 'h':
+			print_usage(stdout, argv[0]);
+			exit(EXIT_SUCCESS);
+		default:
+			fprintf(stderr, "OPT: %d ('%c')\n", opt, (char)opt);
+			print_usage(stderr, argv[0]);
+			exit(EXIT_FAILURE);
+		}
+	}
+	if (!(ifindex = if_nametoindex(ifname)))
+		fprintf(stderr, "ERROR: error finding device %s: %s\n"
+		              , ifname, strerror(errno));
+
+	/* Set up libbpf errors and debug info callback */
+	libbpf_set_print(libbpf_print_fn);
+
+	/* Cleaner handling of Ctrl-C */
+	signal(SIGINT, sig_handler);
+	signal(SIGTERM, sig_handler);
+
+	/* Load and verify BPF programs*/
+	skel = dnsrrl_bpf__open_and_load();
+	if (!skel) {
+		fprintf(stderr, "Failed to open and load skeleton\n");
+		return 1;
+	}
+
+	//rewrite .data global variable map value
+	datasec_map_rewrite(skel, &ratelimit, &cpus);
 
 	fd = bpf_program__fd(skel->progs.xdp_dns_cookies);
 
