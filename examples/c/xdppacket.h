@@ -281,3 +281,62 @@ void update_checksum(__u16 *csum, __u16 old_val, __u16 new_val)
         *csum = (__u16)~new_csum_comp;
 }
 
+
+//TCP
+
+#define TC_ACT_OK 0
+#define TC_ACT_SHOT 2
+
+#define NSEC_PER_SEC 1000000000L
+
+#define ETH_ALEN 6
+#define ETH_P_IP 0x0800
+#define ETH_P_IPV6 0x86DD
+
+#define tcp_flag_word(tp) (((union tcp_word_hdr *)(tp))->words[3])
+
+#define IP_DF 0x4000
+#define IP_MF 0x2000
+#define IP_OFFSET 0x1fff
+
+#define NEXTHDR_TCP 6
+
+#define TCPOPT_NOP 1
+#define TCPOPT_EOL 0
+#define TCPOPT_MSS 2
+#define TCPOPT_WINDOW 3
+#define TCPOPT_SACK_PERM 4
+#define TCPOPT_TIMESTAMP 8
+
+#define TCPOLEN_MSS 4
+#define TCPOLEN_WINDOW 3
+#define TCPOLEN_SACK_PERM 2
+#define TCPOLEN_TIMESTAMP 10
+
+#define TCP_TS_HZ 1000
+#define TS_OPT_WSCALE_MASK 0xf
+#define TS_OPT_SACK (1 << 4)
+#define TS_OPT_ECN (1 << 5)
+#define TSBITS 6
+#define TSMASK (((__u32)1 << TSBITS) - 1)
+#define TCP_MAX_WSCALE 14U
+
+#define IPV4_MAXLEN 60
+#define TCP_MAXLEN 60
+
+#define DEFAULT_MSS4 1460
+#define DEFAULT_MSS6 1440
+#define DEFAULT_WSCALE 7
+#define DEFAULT_TTL 64
+#define MAX_ALLOWED_PORTS 8
+
+#define swap(a, b) \
+        do { typeof(a) __tmp = (a); (a) = (b); (b) = __tmp; } while (0)
+
+#define __get_unaligned_t(type, ptr) ({                                         \
+        const struct { type x; } __attribute__((__packed__)) *__pptr = (typeof(__pptr))(ptr); \
+        __pptr->x;                                                              \
+})
+
+#define get_unaligned(ptr) __get_unaligned_t(typeof(*(ptr)), (ptr))
+
