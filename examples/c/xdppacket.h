@@ -217,6 +217,7 @@
 #define DO_RATE_LIMIT_IPV4 1
 #define COOKIE_VERIFY_IPv6 0
 #define COOKIE_VERIFY_IPv4 1
+#define SYN_COOKIE_VERIFY 0
 
 /*
  *  Store the DNS header
