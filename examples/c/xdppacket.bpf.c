@@ -1295,6 +1295,18 @@ int syncookie_xdp(struct xdp_md *ctx)
 	return syncookie_part2(ctx, data, data_end, &hdr, true);
 }
 
+struct {
+        __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
+        __uint(max_entries, 2);
+        __uint(key_size, sizeof(__u32));
+        __uint(value_size, sizeof(__u32));
+        __array(values, int (void *));
+} jmp_syncookie_table SEC(".maps") = {
+        .values = {
+                [SYN_COOKIE_VERIFY] = (void *)&syncookie_xdp,
+        },
+};
+
 SEC("xdp")
 int xdp_packet(struct xdp_md *ctx)
 {
@@ -1363,6 +1375,7 @@ int xdp_packet(struct xdp_md *ctx)
 			break;
 
 		case IPPROTO_TCP:
+			bpf_tail_call(ctx, &jmp_syncookie_table, SYN_COOKIE_VERIFY);
 			break;
 		}
 	} else if (md->eth_proto == __bpf_htons(ETH_P_IP)) {
@@ -1411,6 +1424,7 @@ int xdp_packet(struct xdp_md *ctx)
 			break;
 
 		case IPPROTO_TCP:
+			bpf_tail_call(ctx, &jmp_syncookie_table, SYN_COOKIE_VERIFY);
 			break;
 		}
 
