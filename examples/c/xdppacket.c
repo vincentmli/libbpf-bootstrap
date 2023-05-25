@@ -35,6 +35,11 @@ static unsigned int ifindex;
 static __u32 attached_prog_id;
 static __u32 syncookie_prog_id;
 
+static unsigned long ratelimit = DEFAULT_RATELIMIT;
+static __u8 cpus = DEFAULT_CPUS;
+
+
+
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
 {
 	return vfprintf(stderr, format, args);
@@ -74,24 +79,11 @@ static void noreturn cleanup(int sig)
 	exit(0);
 }
 
-
 static noreturn void usage(const char *progname)
 {
-        fprintf(stderr, "Usage: %s \
-        [--iface <iface>|--prog <prog_id>]\n\n \
-                        syncookie parameter: \n\n \
-                        [--mss4 <mss ipv4>\n \
-                        --mss6 <mss ipv6>\n \
-                        --wscale <wscale>\n \
-                        --ttl <ttl>]\n \
-                        [--ports <port1>,<port2>,...]\n \
-                        [--single]\n\n \
-                        DNS rate limit and cookie parameter: \n\n \
-			[--ipv4 <IPv4 V.I.P. pinpath]\n \
-			[--ipv6 <IPv6 V.I.P. pinpath]\n \
-                        \n",
-                progname);
-        exit(1);
+	fprintf(stderr, "Usage: %s [--iface <iface>|--prog <prog_id>] [--mss4 <mss ipv4> --mss6 <mss ipv6> --wscale <wscale> --ttl <ttl>] [--ports <port1>,<port2>,...] [--single]\n",
+		progname);
+	exit(1);
 }
 
 static unsigned long parse_arg_ul(const char *progname, const char *arg, unsigned long limit)
@@ -110,18 +102,18 @@ static unsigned long parse_arg_ul(const char *progname, const char *arg, unsigne
 static void parse_options(int argc, char *argv[], unsigned int *ifindex, __u32 *prog_id,
                           __u64 *tcpipopts, char **ports, bool *single)
 {
-        static struct option long_options[] = {
-                { "help", no_argument, NULL, 'h' },
-                { "iface", required_argument, NULL, 'i' },
-                { "prog", optional_argument, NULL, 'x' },
-                { "mss4", optional_argument, NULL, 4 },
-                { "mss6", optional_argument, NULL, 6 },
-                { "wscale", optional_argument, NULL, 'w' },
-                { "ttl", optional_argument, NULL, 't' },
-                { "ports", optional_argument, NULL, 'p' },
-                { "single", no_argument, NULL, 's' },
-                { NULL, 0, NULL, 0 },
-        };
+	static struct option long_options[] = {
+		{ "help", no_argument, NULL, 'h' },
+		{ "iface", required_argument, NULL, 'i' },
+		{ "prog", required_argument, NULL, 'x' },
+		{ "mss4", required_argument, NULL, 4 },
+		{ "mss6", required_argument, NULL, 6 },
+		{ "wscale", required_argument, NULL, 'w' },
+		{ "ttl", required_argument, NULL, 't' },
+		{ "ports", required_argument, NULL, 'p' },
+		{ "single", no_argument, NULL, 's' },
+		{ NULL, 0, NULL, 0 },
+	};
         unsigned long mss4, wscale, ttl;
         unsigned long long mss6;
         unsigned int tcpipopts_mask = 0;
@@ -287,7 +279,7 @@ out:
 	return err;
 }
 
-static int datasec_map_rewrite(struct xdppacket_bpf *skel, __u16 *ratelimit, __u8 *cpus)
+static int datasec_map_rewrite(struct xdppacket_bpf *skel, unsigned long *ratelimit, __u8 *cpus)
 {
 	struct bpf_map *map;
 	struct btf *btf;
@@ -384,9 +376,6 @@ static int xdppacket_attach(const char *argv0, unsigned int ifindex)
 	__u32 syncookie_info_len = sizeof(syncookie_info);
 	int err;
 
-        __u16 ratelimit = DEFAULT_RATELIMIT;
-        __u8 cpus = DEFAULT_CPUS;
-
 	int prog_fd;
 	int syncookie_prog_fd;
 
@@ -477,13 +466,9 @@ int main(int argc, char **argv)
 		}
 	}
 
-	fprintf(stderr, "XDP attached before map open\n");
-
 	err = syncookie_open_bpf_maps(syncookie_prog_id, &values_map_fd, &ports_map_fd);
 	if (err < 0)
 		goto out;
-
-	fprintf(stderr, "XDP attached after map open\n");
 
 	if (ports) {
 		__u16 port_last = 0;
@@ -554,7 +539,7 @@ int main(int argc, char **argv)
 
 		printf("SYNACKs generated: %llu (total %llu)\n", value - prevcnt, value);
 		prevcnt = value;
-		sleep(300);
+		sleep(1);
 	}
 
 	printf("Press Ctrl-C to stop and unload.\n");
