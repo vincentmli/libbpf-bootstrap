@@ -54,7 +54,7 @@ struct meta_data {
 	__u16 unused;
 };
 
-static volatile __u16 ratelimit = 10;
+static volatile unsigned int ratelimit = 10;
 static volatile __u8 numcpus = 2;
 
 struct ipv4_key {
