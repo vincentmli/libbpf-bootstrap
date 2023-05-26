@@ -81,8 +81,15 @@ static void noreturn cleanup(int sig)
 
 static noreturn void usage(const char *progname)
 {
-	fprintf(stderr, "Usage: %s [--iface <iface>|--prog <prog_id>] [--mss4 <mss ipv4> --mss6 <mss ipv6> --wscale <wscale> --ttl <ttl>] [--ports <port1>,<port2>,...] [--rrl <rrl>] [--cpus <cpus>] [--single]\n",
-		progname);
+	fprintf(stderr, "Usage: %s [--iface <iface>|--prog <prog_id>]\n\n \
+	syncookie option:\n\n \
+		[--mss4 <mss ipv4> --mss6 <mss ipv6> --wscale <wscale> --ttl <ttl>]\n\n \
+		[--ports <port1>,<port2>,...]\n\n \
+		[--single]\n\n \
+	DNS response ratelimit option:\n\n \
+		[--rrl <rrl>]\n\n \
+		[--cpus <cpus>]\n\n",
+	progname);
 	exit(1);
 }
 
