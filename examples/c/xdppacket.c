@@ -36,7 +36,7 @@ static __u32 attached_prog_id;
 static __u32 syncookie_prog_id;
 
 static unsigned long ratelimit = DEFAULT_RATELIMIT;
-static __u8 cpus = DEFAULT_CPUS;
+static unsigned long cpus = DEFAULT_CPUS;
 
 
 
@@ -81,7 +81,7 @@ static void noreturn cleanup(int sig)
 
 static noreturn void usage(const char *progname)
 {
-	fprintf(stderr, "Usage: %s [--iface <iface>|--prog <prog_id>] [--mss4 <mss ipv4> --mss6 <mss ipv6> --wscale <wscale> --ttl <ttl>] [--ports <port1>,<port2>,...] [--single]\n",
+	fprintf(stderr, "Usage: %s [--iface <iface>|--prog <prog_id>] [--mss4 <mss ipv4> --mss6 <mss ipv6> --wscale <wscale> --ttl <ttl>] [--ports <port1>,<port2>,...] [--rrl <rrl>] [--cpus <cpus>] [--single]\n",
 		progname);
 	exit(1);
 }
@@ -112,6 +112,8 @@ static void parse_options(int argc, char *argv[], unsigned int *ifindex, __u32 *
 		{ "ttl", required_argument, NULL, 't' },
 		{ "ports", required_argument, NULL, 'p' },
 		{ "single", no_argument, NULL, 's' },
+		{ "rrl", required_argument, NULL, 'r' },
+		{ "cpus", required_argument, NULL, 'c' },
 		{ NULL, 0, NULL, 0 },
 	};
         unsigned long mss4, wscale, ttl;
@@ -169,6 +171,12 @@ static void parse_options(int argc, char *argv[], unsigned int *ifindex, __u32 *
                         break;
                 case 's':
                         *single = true;
+                        break;
+                case 'r':
+                        ratelimit = parse_arg_ul(argv[0], optarg, UINT16_MAX);
+                        break;
+                case 'c':
+                        cpus = parse_arg_ul(argv[0], optarg, UINT16_MAX);
                         break;
                 default:
                         usage(argv[0]);
@@ -279,7 +287,7 @@ out:
 	return err;
 }
 
-static int datasec_map_rewrite(struct xdppacket_bpf *skel, unsigned long *ratelimit, __u8 *cpus)
+static int datasec_map_rewrite(struct xdppacket_bpf *skel, unsigned long *ratelimit, unsigned long *cpus)
 {
 	struct bpf_map *map;
 	struct btf *btf;

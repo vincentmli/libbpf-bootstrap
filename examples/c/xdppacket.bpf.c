@@ -55,7 +55,7 @@ struct meta_data {
 };
 
 static volatile unsigned int ratelimit = 10;
-static volatile __u8 numcpus = 2;
+static volatile unsigned int numcpus = 2;
 
 struct ipv4_key {
 	struct   bpf_lpm_trie_key lpm_key;
