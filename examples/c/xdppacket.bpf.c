@@ -1069,12 +1069,6 @@ static __always_inline int syncookie_handle_syn(struct header_pointers *hdr,
 	if (hdr->tcp->fin || hdr->tcp->rst)
 		return XDP_DROP;
 
-	/* Issue SYN cookies on allowed ports, drop SYN packets on blocked
-	 * ports.
-	 */
-	if (!check_port_allowed(bpf_ntohs(hdr->tcp->dest)))
-		return XDP_DROP;
-
 	if (hdr->ipv4) {
 		/* Check the IPv4 and TCP checksums before creating a SYNACK. */
 		value = bpf_csum_diff(0, 0, (void *)hdr->ipv4, hdr->ipv4->ihl * 4, 0);
@@ -1218,6 +1212,10 @@ static __always_inline int syncookie_part1(void *ctx, void *data, void *data_end
 	ret = tcp_lookup(ctx, hdr, xdp);
 	if (ret != XDP_TX)
 		return ret;
+
+	/* Pass to upper stack if port requires no syncookie handling */
+	if (!check_port_allowed(bpf_ntohs(hdr->tcp->dest)))
+		return XDP_PASS;
 
 	/* Packet is TCP and doesn't belong to an established connection. */
 
