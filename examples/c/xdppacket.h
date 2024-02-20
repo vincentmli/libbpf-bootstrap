@@ -330,6 +330,7 @@ void update_checksum(__u16 *csum, __u16 old_val, __u16 new_val)
 #define DEFAULT_WSCALE 7
 #define DEFAULT_TTL 64
 #define MAX_ALLOWED_PORTS 8
+#define MAX_PACKET_OFF 0xffff
 
 #define swap(a, b) \
         do { typeof(a) __tmp = (a); (a) = (b); (b) = __tmp; } while (0)
