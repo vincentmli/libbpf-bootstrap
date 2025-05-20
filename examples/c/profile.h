@@ -1,26 +1,18 @@
-/* SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause) */
-/* Copyright (c) 2022 Meta Platforms, Inc. */
-#ifndef __PROFILE_H_
-#define __PROFILE_H_
+// SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
+#ifndef __PROFILE_H
+#define __PROFILE_H
 
-#ifndef TASK_COMM_LEN
-#define TASK_COMM_LEN 16
-#endif
+#define TASK_COMM_LEN		16
+#define MAX_CPU_NR		128
+#define MAX_ENTRIES		10240
+#define MAX_PID_NR		30
+#define MAX_TID_NR		30
 
-#ifndef MAX_STACK_DEPTH
-#define MAX_STACK_DEPTH 128
-#endif
-
-typedef __u64 stack_trace_t[MAX_STACK_DEPTH];
-
-struct stacktrace_event {
+struct key_t {
 	__u32 pid;
-	__u32 cpu_id;
-	char comm[TASK_COMM_LEN];
-	__s32 kstack_sz;
-	__s32 ustack_sz;
-	stack_trace_t kstack;
-	stack_trace_t ustack;
+	int user_stack_id;
+	int kern_stack_id;
+	char name[TASK_COMM_LEN];
 };
 
-#endif /* __PROFILE_H_ */
+#endif /* __PROFILE_H */
