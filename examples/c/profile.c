@@ -63,7 +63,7 @@ struct fmt_t stacktrace_formats[] = {
 	{ true, ";", "", "-" }		/* folded */
 };
 
-#define pr_format(str, fmt)		printf("%s%s%s", fmt->prefix, str, fmt->suffix)
+#define pr_format(str, fmt)	fprintf(env.output_file ? env.output_file : stdout, "%s%s%s", fmt->prefix, str, fmt->suffix)
 
 static struct env {
 	pid_t pids[MAX_PID_NR];
@@ -80,6 +80,7 @@ static struct env {
 	bool include_idle;
 	int cpu;
 	bool folded;
+	FILE *output_file;
 } env = {
 	.stack_storage_size = 1024,
 	.perf_max_stack_depth = 127,
@@ -87,6 +88,7 @@ static struct env {
 	.freq = 1,
 	.sample_freq = 49,
 	.cpu = -1,
+	.output_file = NULL,
 };
 
 const char *argp_program_version = "profile 0.1";
@@ -105,7 +107,8 @@ const char argp_program_doc[] =
 "    profile -p 185      # only profile process with PID 185\n"
 "    profile -L 185      # only profile thread with TID 185\n"
 "    profile -U          # only show user space stacks (no kernel)\n"
-"    profile -K          # only show kernel space stacks (no user)\n";
+"    profile -K          # only show kernel space stacks (no user)\n"
+"    profile -o file     # write output to file instead of stdout\n";
 
 static const struct argp_option opts[] = {
 	{ "pid", 'p', "PID", 0, "profile processes with one or more comma-separated PIDs only", 0 },
@@ -124,6 +127,7 @@ static const struct argp_option opts[] = {
 	{ "perf-max-stack-depth", OPT_PERF_MAX_STACK_DEPTH,
 	  "PERF-MAX-STACK-DEPTH", 0, "the limit for both kernel and user stack traces (default 127)", 0 },
 	{ "verbose", 'v', NULL, 0, "Verbose debug output", 0 },
+	{ "output", 'o', "FILE", 0, "write output to file instead of stdout", 0 },
 	{ NULL, 'h', NULL, OPTION_HIDDEN, "Show the full help", 0 },
 	{},
 };
@@ -201,6 +205,13 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state)
 		break;
 	case 'f':
 		env.folded = true;
+		break;
+	case 'o':
+		env.output_file = fopen(arg, "w");
+		if (!env.output_file) {
+			fprintf(stderr, "failed to open output file %s: %s\n", arg, strerror(errno));
+			return -1;
+		}
 		break;
 	case OPT_PERF_MAX_STACK_DEPTH:
 		errno = 0;
@@ -447,14 +458,14 @@ static int print_count(struct key_t *event, __u64 count, int stack_map, bool fol
 		/* multi-line stack output */
 		ret = print_kern_stacktrace(event, stack_map, ip, fmt, false);
 		print_user_stacktrace(event, stack_map, ip, fmt, ret && env.delimiter);
-		printf("    %-16s %s (%d)\n", "-", event->name, event->pid);
-		printf("        %lld\n\n", count);
+		fprintf(env.output_file ? env.output_file : stdout, "    %-16s %s (%d)\n", "-", event->name, event->pid);
+		fprintf(env.output_file ? env.output_file : stdout, "        %lld\n\n", count);
 	} else {
 		/* folded stack output */
-		printf("%s", event->name);
+		fprintf(env.output_file ? env.output_file : stdout, "%s", event->name);
 		ret = print_user_stacktrace(event, stack_map, ip, fmt, false);
 		print_kern_stacktrace(event, stack_map, ip, fmt, ret && env.delimiter);
-		printf(" %lld\n", count);
+		fprintf(env.output_file ? env.output_file : stdout, " %lld\n", count);
 	}
 
 	free(ip);
@@ -526,36 +537,37 @@ static int set_pidns(const struct profile_bpf *obj)
 
 static void print_headers()
 {
+	FILE *out = env.output_file ? env.output_file : stdout;
 	int i;
 
-	printf("Sampling at %d Hertz of", env.sample_freq);
+	fprintf(out, "Sampling at %d Hertz of", env.sample_freq);
 
 	if (env.pids[0]) {
-		printf(" PID [");
+		fprintf(out, " PID [");
 		for (i = 0; i < MAX_PID_NR && env.pids[i]; i++)
-			printf("%d%s", env.pids[i], (i < MAX_PID_NR - 1 && env.pids[i + 1]) ? ", " : "]");
+			fprintf(out, "%d%s", env.pids[i], (i < MAX_PID_NR - 1 && env.pids[i + 1]) ? ", " : "]");
 	} else if (env.tids[0]) {
-		printf(" TID [");
+		fprintf(out, " TID [");
 		for (i = 0; i < MAX_TID_NR && env.tids[i]; i++)
-			printf("%d%s", env.tids[i], (i < MAX_TID_NR - 1 && env.tids[i + 1]) ? ", " : "]");
+			fprintf(out, "%d%s", env.tids[i], (i < MAX_TID_NR - 1 && env.tids[i + 1]) ? ", " : "]");
 	} else {
-		printf(" all threads");
+		fprintf(out, " all threads");
 	}
 
 	if (env.user_stacks_only)
-		printf(" by user");
+		fprintf(out, " by user");
 	else if (env.kernel_stacks_only)
-		printf(" by kernel");
+		fprintf(out, " by kernel");
 	else
-		printf(" by user + kernel");
+		fprintf(out, " by user + kernel");
 
 	if (env.cpu != -1)
-		printf(" on CPU#%d", env.cpu);
+		fprintf(out, " on CPU#%d", env.cpu);
 
 	if (env.duration < INT_MAX)
-		printf(" for %d secs.\n", env.duration);
+		fprintf(out, " for %d secs.\n", env.duration);
 	else
-		printf("... Hit Ctrl-C to end.\n");
+		fprintf(out, "... Hit Ctrl-C to end.\n");
 }
 
 int main(int argc, char **argv)
@@ -673,6 +685,8 @@ int main(int argc, char **argv)
 		     bpf_map__fd(obj->maps.stackmap));
 
 cleanup:
+	if (env.output_file)
+		fclose(env.output_file);
 	if (env.cpu != -1)
 		bpf_link__destroy(links[env.cpu]);
 	else {
