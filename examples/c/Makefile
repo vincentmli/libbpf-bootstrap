@@ -21,6 +21,15 @@ INCLUDES := -I$(OUTPUT) -I../../libbpf/include/uapi -I$(dir $(VMLINUX))
 CFLAGS := -g -Wall
 ALL_LDFLAGS := $(LDFLAGS) $(EXTRA_LDFLAGS)
 
+COMMON_OBJ = \
+        $(OUTPUT)/trace_helpers.o \
+        $(OUTPUT)/syscall_helpers.o \
+        $(OUTPUT)/errno_helpers.o \
+        $(OUTPUT)/map_helpers.o \
+        $(OUTPUT)/uprobe_helpers.o \
+        $(OUTPUT)/btf_helpers.o \
+        $(OUTPUT)/compat.o
+
 APPS = minimal minimal_legacy minimal_ns bootstrap uprobe kprobe fentry \
        usdt sockfilter tc ksyscall task_iter lsm
 
@@ -102,7 +111,7 @@ $(OUTPUT)/%.o: %.c $(wildcard %.h) | $(OUTPUT)
 	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -c $(filter %.c,$^) -o $@
 
 # Build application binary
-$(APPS): %: $(OUTPUT)/%.o $(LIBBPF_OBJ) | $(OUTPUT)
+$(APPS): %: $(OUTPUT)/%.o $(COMMON_OBJ) $(LIBBPF_OBJ) | $(OUTPUT)
 	$(call msg,BINARY,$@)
 	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
 
