@@ -31,7 +31,7 @@ COMMON_OBJ = \
         $(OUTPUT)/compat.o
 
 APPS = minimal minimal_legacy minimal_ns bootstrap uprobe kprobe fentry \
-       usdt sockfilter tc ksyscall task_iter lsm profile biotop
+       usdt sockfilter tc ksyscall task_iter lsm profile biotop netqtop
 
 # Get Clang's default includes on this system. We'll explicitly add these dirs
 # to the includes list when compiling with `-target bpf` because otherwise some
