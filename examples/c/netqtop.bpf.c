@@ -3,20 +3,8 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
+#include "maps.bpf.h"
 #include "netqtop.h"
-
-/* Tracepoint structure for net_dev_start_xmit */
-struct net_dev_start_xmit_tp {
-    unsigned short common_type;
-    unsigned char common_flags;
-    unsigned char common_preempt_count;
-    int common_pid;
-    
-    void *skbaddr;
-    unsigned int len;
-    __u16 queue_mapping;
-    char name[IFNAMSIZ];
-};
 
 /* Tracepoint structure for netif_receive_skb */
 struct netif_receive_skb_tp {
@@ -90,24 +78,20 @@ static void update_data(struct queue_data *data, u64 len)
 }
 
 SEC("tracepoint/net/net_dev_start_xmit")
-int net_dev_start_xmit(struct net_dev_start_xmit_tp *args)
+int net_dev_start_xmit(struct trace_event_raw_net_dev_start_xmit *args)
 {
-    struct sk_buff *skb = (struct sk_buff *)args->skbaddr;
+    struct sk_buff *skb;
+    BPF_CORE_READ_INTO(&skb, args, skbaddr);
     
     if (!name_filter(skb))
         return 0;
 
     u16 qid = BPF_CORE_READ(skb, queue_mapping);
     struct queue_data newdata = {};
-    struct queue_data *data;
     
-    data = bpf_map_lookup_elem(&tx_q, &qid);
-    if (!data) {
-        bpf_map_update_elem(&tx_q, &qid, &newdata, BPF_NOEXIST);
-        data = bpf_map_lookup_elem(&tx_q, &qid);
-        if (!data)
-            return 0;
-    }
+    struct queue_data *data = bpf_map_lookup_or_try_init(&tx_q, &qid, &newdata);
+    if (!data)
+        return 0;
     
     update_data(data, BPF_CORE_READ(skb, len));
     return 0;
@@ -117,7 +101,7 @@ SEC("tracepoint/net/netif_receive_skb")
 int netif_receive_skb(struct netif_receive_skb_tp *args)
 {
     struct sk_buff *skb = (struct sk_buff *)args->skbaddr;
-    
+
     if (!name_filter(skb))
         return 0;
 
@@ -127,16 +111,10 @@ int netif_receive_skb(struct netif_receive_skb_tp *args)
         qid = mapping;
 
     struct queue_data newdata = {};
-    struct queue_data *data;
-    
-    data = bpf_map_lookup_elem(&rx_q, &qid);
-    if (!data) {
-        bpf_map_update_elem(&rx_q, &qid, &newdata, BPF_NOEXIST);
-        data = bpf_map_lookup_elem(&rx_q, &qid);
-        if (!data)
-            return 0;
-    }
-    
+    struct queue_data *data = bpf_map_lookup_or_try_init(&rx_q, &qid, &newdata);
+    if (!data)
+        return 0;
+
     update_data(data, BPF_CORE_READ(skb, len));
     return 0;
 }
