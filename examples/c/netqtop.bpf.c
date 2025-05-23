@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <vmlinux.h>
 #include <bpf/bpf_helpers.h>
+#include <bpf/bpf_endian.h>
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
 #include "maps.bpf.h"
@@ -60,8 +61,41 @@ static inline int name_filter(struct sk_buff* skb)
     return 1;
 }
 
-static void update_data(struct queue_data *data, u64 len)
+static void update_protocol_stats(struct queue_data *data, struct sk_buff *skb)
 {
+    __u16 protocol = 0;
+    __u8 ip_proto = 0;
+
+    BPF_CORE_READ_INTO(&protocol, skb, protocol);
+    
+    // Check Ethernet type
+    if (protocol == bpf_htons(ETH_P_IP)) {
+        struct iphdr iph;
+        if (bpf_probe_read_kernel(&iph, sizeof(iph), BPF_CORE_READ(skb, head) + BPF_CORE_READ(skb, network_header)) == 0)
+            ip_proto = iph.protocol;
+    }
+
+    // Count protocols
+    switch (ip_proto) {
+        case IPPROTO_TCP:
+            data->tcp_pkts++;
+            break;
+        case IPPROTO_UDP:
+            data->udp_pkts++;
+            break;
+        case IPPROTO_ICMP:
+            data->icmp_pkts++;
+            break;
+        default:
+            if (protocol != 0)  // Don't count invalid packets
+                data->other_pkts++;
+    }
+}
+
+static void update_data(struct queue_data *data, struct sk_buff *skb)
+{
+    u64 len = BPF_CORE_READ(skb, len);
+    
     data->total_pkt_len += len;
     data->num_pkt++;
     
@@ -75,6 +109,8 @@ static void update_data(struct queue_data *data, u64 len)
         data->size_16K++;
     else if (len < 65536)
         data->size_64K++;
+        
+    update_protocol_stats(data, skb);
 }
 
 SEC("tracepoint/net/net_dev_start_xmit")
@@ -93,7 +129,7 @@ int net_dev_start_xmit(struct trace_event_raw_net_dev_start_xmit *args)
     if (!data)
         return 0;
     
-    update_data(data, BPF_CORE_READ(skb, len));
+    update_data(data, skb);
     return 0;
 }
 
@@ -115,7 +151,7 @@ int netif_receive_skb(struct netif_receive_skb_tp *args)
     if (!data)
         return 0;
 
-    update_data(data, BPF_CORE_READ(skb, len));
+    update_data(data, skb);
     return 0;
 }
 
