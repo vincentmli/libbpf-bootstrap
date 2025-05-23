@@ -3,6 +3,7 @@
 
 #define IFNAMSIZ 16
 #define MAX_QUEUE_NUM 1024
+#define ETH_P_IP 0x0800
 
 union name_buf {
     char name[IFNAMSIZ];
@@ -13,13 +14,18 @@ union name_buf {
 };
 
 struct queue_data {
-    __u64 total_pkt_len;
-    __u32 num_pkt;
-    __u32 size_64B;
+    __u64 total_pkt_len;  // Total bytes
+    __u32 num_pkt;        // Total packets
+    __u32 size_64B;       // Packet count by size
     __u32 size_512B;
     __u32 size_2K;
     __u32 size_16K;
     __u32 size_64K;
+    /* Protocol counters */
+    __u32 tcp_pkts;       // TCP packets
+    __u32 udp_pkts;       // UDP packets
+    __u32 icmp_pkts;      // ICMP/ICMPv6 packets
+    __u32 other_pkts;     // Other protocols
 };
 
 #endif /* __NETQTOP_H */
