@@ -7,13 +7,14 @@
  * Based on tcpstates(8) from BCC by Brendan Gregg.
  * 18-Dec-2021   Hengqi Chen   Created this.
  */
-#include <argp.h>
+#include <getopt.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <signal.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <time.h>
+#include <stdlib.h>
 
 #include <bpf/libbpf.h>
 #include <bpf/bpf.h>
@@ -50,91 +51,77 @@ static const char *tcp_states[] = {
 	[13] = "UNKNOWN",
 };
 
-const char *argp_program_version = "tcpstates 1.0";
-const char *argp_program_bug_address =
-	"https://github.com/iovisor/bcc/tree/master/libbpf-tools";
-const char argp_program_doc[] =
-"Trace TCP session state changes and durations.\n"
-"\n"
-"USAGE: tcpstates [-4] [-6] [-T] [-L lport] [-D dport]\n"
-"\n"
-"EXAMPLES:\n"
-"    tcpstates                  # trace all TCP state changes\n"
-"    tcpstates -T               # include timestamps\n"
-"    tcpstates -L 80            # only trace local port 80\n"
-"    tcpstates -D 80            # only trace remote port 80\n";
-
-static const struct argp_option opts[] = {
-	{ "verbose", 'v', NULL, 0, "Verbose debug output", 0 },
-	{ "timestamp", 'T', NULL, 0, "Include timestamp on output", 0 },
-	{ "ipv4", '4', NULL, 0, "Trace IPv4 family only", 0 },
-	{ "ipv6", '6', NULL, 0, "Trace IPv6 family only", 0 },
-	{ "wide", 'w', NULL, 0, "Wide column output (fits IPv6 addresses)", 0 },
-	{ "localport", 'L', "LPORT", 0, "Comma-separated list of local ports to trace.", 0 },
-	{ "remoteport", 'D', "DPORT", 0, "Comma-separated list of remote ports to trace.", 0 },
-	{ NULL, 'h', NULL, OPTION_HIDDEN, "Show the full help", 0 },
-	{},
-};
-
-static error_t parse_arg(int key, char *arg, struct argp_state *state)
+static void usage(const char *prog_name, int exit_code)
 {
-	long port_num;
-	char *port;
+	fprintf(exit_code ? stderr : stdout,
+		"Usage: %s [OPTION]...\n"
+		"Trace TCP session state changes and durations.\n"
+		"\n"
+		"Examples:\n"
+		"  %s                  # trace all TCP state changes\n"
+		"  %s -T               # include timestamps\n"
+		"  %s -L 80            # only trace local port 80\n"
+		"  %s -D 80            # only trace remote port 80\n"
+		"\n"
+		"Options:\n"
+		"  -h, --help          Show this help message and exit\n"
+		"  -v, --verbose       Verbose debug output\n"
+		"  -T, --timestamp     Include timestamp on output\n"
+		"  -4, --ipv4          Trace IPv4 family only\n"
+		"  -6, --ipv6          Trace IPv6 family only\n"
+		"  -w, --wide          Wide column output (fits IPv6 addresses)\n"
+		"  -L, --localport LPORT  Comma-separated list of local ports to trace\n"
+		"  -D, --remoteport DPORT Comma-separated list of remote ports to trace\n",
+		prog_name, prog_name, prog_name, prog_name, prog_name);
+	exit(exit_code);
+}
 
-	switch (key) {
-	case 'v':
-		verbose = true;
-		break;
-	case 'T':
-		emit_timestamp = true;
-		break;
-	case '4':
-		target_family = AF_INET;
-		break;
-	case '6':
-		target_family = AF_INET6;
-		break;
-	case 'w':
-		wide_output = true;
-		break;
-	case 'L':
-		if (!arg) {
-			warn("No ports specified\n");
-			argp_usage(state);
-		}
-		target_sports = strdup(arg);
-		port = strtok(arg, ",");
-		while (port) {
-			port_num = strtol(port, NULL, 10);
-			if (errno || port_num <= 0 || port_num > 65536) {
-				warn("Invalid ports: %s\n", arg);
-				argp_usage(state);
-			}
-			port = strtok(NULL, ",");
-		}
-		break;
-	case 'D':
-		if (!arg) {
-			warn("No ports specified\n");
-			argp_usage(state);
-		}
-		target_dports = strdup(arg);
-		port = strtok(arg, ",");
-		while (port) {
-			port_num = strtol(port, NULL, 10);
-			if (errno || port_num <= 0 || port_num > 65536) {
-				warn("Invalid ports: %s\n", arg);
-				argp_usage(state);
-			}
-			port = strtok(NULL, ",");
-		}
-		break;
-	case 'h':
-		argp_state_help(state, stderr, ARGP_HELP_STD_HELP);
-		break;
-	default:
-		return ARGP_ERR_UNKNOWN;
+static int parse_port_list(const char *arg, char **save_ptr)
+{
+	char *input_copy;
+	char *port_str;
+	long port_num;
+	char *endptr;
+
+	if (!arg) {
+		warn("No ports specified\n");
+		return -1;
 	}
+
+	input_copy = strdup(arg);
+	if (!input_copy) {
+		warn("Memory allocation failed\n");
+		return -1;
+	}
+
+	port_str = strtok(input_copy, ",");
+	while (port_str) {
+		errno = 0;
+		port_num = strtol(port_str, &endptr, 10);
+		
+		if (errno != 0 || endptr == port_str || *endptr != '\0') {
+			warn("Invalid port number: '%s'\n", port_str);
+			free(input_copy);
+			return -1;
+		}
+		
+		if (port_num <= 0 || port_num > 65535) {
+			warn("Port out of range (1-65535): %ld\n", port_num);
+			free(input_copy);
+			return -1;
+		}
+		
+		port_str = strtok(NULL, ",");
+	}
+	
+	free(input_copy);
+	
+	*save_ptr = strdup(arg);
+	if (!*save_ptr) {
+		warn("Memory allocation failed\n");
+		return -1;
+	}
+	
 	return 0;
 }
 
@@ -163,7 +150,6 @@ static void handle_event(void *ctx, int cpu, void *data, __u32 data_sz)
 		printf("Error: packet too small\n");
 		return;
 	}
-	/* Copy data as alignment in the perf buffer isn't guaranteed. */
 	memcpy(&e, data, sizeof(e));
 
 	if (emit_timestamp) {
@@ -194,21 +180,69 @@ static void handle_lost_events(void *ctx, int cpu, __u64 lost_cnt)
 
 int main(int argc, char **argv)
 {
-	LIBBPF_OPTS(bpf_object_open_opts, open_opts);
-	static const struct argp argp = {
-		.options = opts,
-		.parser = parse_arg,
-		.doc = argp_program_doc,
+	static struct option long_options[] = {
+		{"help",      no_argument,       0, 'h'},
+		{"verbose",   no_argument,       0, 'v'},
+		{"timestamp", no_argument,       0, 'T'},
+		{"ipv4",      no_argument,       0, '4'},
+		{"ipv6",      no_argument,       0, '6'},
+		{"wide",      no_argument,       0, 'w'},
+		{"localport", required_argument, 0, 'L'},
+		{"remoteport",required_argument, 0, 'D'},
+		{0, 0, 0, 0}
 	};
+	
+	int opt;
+	LIBBPF_OPTS(bpf_object_open_opts, open_opts);
 	struct perf_buffer *pb = NULL;
 	struct tcpstates_bpf *obj;
 	int err, port_map_fd;
 	short port_num;
 	char *port;
 
-	err = argp_parse(&argp, argc, argv, 0, NULL, NULL);
-	if (err)
-		return err;
+	while ((opt = getopt_long(argc, argv, "hvT46wL:D:", long_options, NULL)) != -1) {
+		switch (opt) {
+		case 'h':
+			usage(argv[0], 0);
+			break;
+		case 'v':
+			verbose = true;
+			break;
+		case 'T':
+			emit_timestamp = true;
+			break;
+		case '4':
+			target_family = AF_INET;
+			break;
+		case '6':
+			target_family = AF_INET6;
+			break;
+		case 'w':
+			wide_output = true;
+			break;
+		case 'L':
+			if (parse_port_list(optarg, &target_sports) < 0) {
+				usage(argv[0], 1);
+			}
+			break;
+		case 'D':
+			if (parse_port_list(optarg, &target_dports) < 0) {
+				usage(argv[0], 1);
+			}
+			break;
+		case '?':
+			usage(argv[0], 1);
+			break;
+		default:
+			warn("Unexpected option: %c\n", opt);
+			usage(argv[0], 1);
+		}
+	}
+	
+	if (optind < argc) {
+		warn("Unexpected argument: %s\n", argv[optind]);
+		usage(argv[0], 1);
+	}
 
 	libbpf_set_print(libbpf_print_fn);
 
@@ -290,7 +324,6 @@ int main(int argc, char **argv)
 			warn("error polling perf buffer: %s\n", strerror(-err));
 			goto cleanup;
 		}
-		/* reset err to return 0 if exiting */
 		err = 0;
 	}
 
@@ -298,6 +331,11 @@ cleanup:
 	perf_buffer__free(pb);
 	tcpstates_bpf__destroy(obj);
 	cleanup_core_btf(&open_opts);
+	
+	if (target_sports)
+		free(target_sports);
+	if (target_dports)
+		free(target_dports);
 
 	return err != 0;
 }
