@@ -33,6 +33,11 @@ COMMON_OBJ = \
 APPS = minimal minimal_legacy minimal_ns bootstrap uprobe kprobe fentry \
        usdt sockfilter tc ksyscall task_iter lsm profile biotop netqtop tc_syncookie tcpstates wg_handshake
 
+# Installation directories (configurable)
+PREFIX ?= /usr/local
+BINDIR ?= $(PREFIX)/sbin
+DESTDIR ?=
+
 # Get Clang's default includes on this system. We'll explicitly add these dirs
 # to the includes list when compiling with `-target bpf` because otherwise some
 # architecture-specific dirs will be "missing" on some architectures/distros -
@@ -72,6 +77,25 @@ all: $(APPS)
 clean:
 	$(call msg,CLEAN)
 	$(Q)rm -rf $(OUTPUT) $(APPS)
+
+.PHONY: install
+install: $(APPS)
+	$(call msg,INSTALL,$(DESTDIR)$(BINDIR))
+	$(Q)install -d -m 755 $(DESTDIR)$(BINDIR)
+	$(Q)for app in $(APPS); do \
+		if [ -f "$$app" ]; then \
+			install -m 755 "$$app" $(DESTDIR)$(BINDIR)/; \
+			echo "Installed $$app to $(DESTDIR)$(BINDIR)/"; \
+		fi; \
+	done
+
+.PHONY: uninstall
+uninstall:
+	$(call msg,UNINSTALL,$(DESTDIR)$(BINDIR))
+	$(Q)for app in $(APPS); do \
+		rm -f $(DESTDIR)$(BINDIR)/"$$app"; \
+		echo "Removed $(DESTDIR)$(BINDIR)/$$app"; \
+	done
 
 $(OUTPUT) $(OUTPUT)/libbpf $(BPFTOOL_OUTPUT):
 	$(call msg,MKDIR,$@)
