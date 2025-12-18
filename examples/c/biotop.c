@@ -11,7 +11,6 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
-#include <argp.h>
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>
@@ -19,6 +18,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <getopt.h>
 
 #include <bpf/libbpf.h>
 #include <bpf/bpf.h>
@@ -76,7 +76,7 @@ void free_vector(struct vector vector) {
 	free(vector.elems);
 }
 
-struct vector disks = {};
+struct vector disks = {0, 0, NULL};  // Explicit initialization
 
 static volatile sig_atomic_t exiting = 0;
 
@@ -88,102 +88,23 @@ static int count = 99999999;
 static pid_t target_pid = 0;
 static bool verbose = false;
 
-const char *argp_program_version = "biotop 0.1";
-const char *argp_program_bug_address =
-	"https://github.com/iovisor/bcc/tree/master/libbpf-tools";
-const char argp_program_doc[] =
-"Trace file reads/writes by process.\n"
-"\n"
-"USAGE: biotop [-h] [interval] [count] [-p PID]\n"
-"\n"
-"EXAMPLES:\n"
-"    biotop            # file I/O top, refresh every 1s\n"
-"    biotop 5 10       # 5s summaries, 10 times\n"
-"    biotop -p 181     # only trace PID 1216\n";
-
-static const struct argp_option opts[] = {
-	{ "noclear", 'C', NULL, 0, "Don't clear the screen", 0 },
-	{ "sort", 's', "SORT", 0, "Sort columns, default all [all, io, bytes, time]", 0 },
-	{ "rows", 'r', "ROWS", 0, "Maximum rows to print, default 20", 0 },
-	{ "pid", 'p', "PID", 0, "Process ID to trace", 0 },
-	{ "verbose", 'v', NULL, 0, "Verbose debug output", 0 },
-	{ NULL, 'h', NULL, OPTION_HIDDEN, "Show the full help", 0 },
-	{},
-};
-
-static error_t parse_arg(int key, char *arg, struct argp_state *state)
-{
-	long rows, pid;
-	static int pos_args;
-
-	switch (key) {
-	case 'C':
-		clear_screen = false;
-		break;
-	case 's':
-		if (!strcmp(arg, "all")) {
-			sort_by = ALL;
-		} else if (!strcmp(arg, "io")) {
-			sort_by = IO;
-		} else if (!strcmp(arg, "bytes")) {
-			sort_by = BYTES;
-		} else if (!strcmp(arg, "time")) {
-			sort_by = TIME;
-		} else {
-			warn("invalid sort method: %s\n", arg);
-			argp_usage(state);
-		}
-		break;
-	case 'r':
-		errno = 0;
-		rows = strtol(arg, NULL, 10);
-		if (errno || rows <= 0) {
-			warn("invalid rows: %s\n", arg);
-			argp_usage(state);
-		}
-		output_rows = rows;
-		if (output_rows > OUTPUT_ROWS_LIMIT)
-			output_rows = OUTPUT_ROWS_LIMIT;
-		break;
-	case 'p':
-		errno = 0;
-		pid = strtol(arg, NULL, 10);
-		if (errno || pid <= 0) {
-			warn("Invalid PID: %s\n", arg);
-			argp_usage(state);
-		}
-		target_pid = pid;
-		break;
-	case 'v':
-		verbose = true;
-		break;
-	case 'h':
-		argp_state_help(state, stderr, ARGP_HELP_STD_HELP);
-		break;
-	case ARGP_KEY_ARG:
-		errno = 0;
-		if (pos_args == 0) {
-			interval = strtol(arg, NULL, 10);
-			if (errno || interval <= 0) {
-				warn("invalid interval\n");
-				argp_usage(state);
-			}
-		} else if (pos_args == 1) {
-			count = strtol(arg, NULL, 10);
-			if (errno || count <= 0) {
-				warn("invalid count\n");
-				argp_usage(state);
-			}
-		} else {
-			warn("unrecognized positional argument: %s\n", arg);
-			argp_usage(state);
-		}
-		pos_args++;
-		break;
-	default:
-		return ARGP_ERR_UNKNOWN;
-	}
-	return 0;
+void print_usage(char *prog_name) {
+    printf("Usage: %s [options] [interval] [count]\n", prog_name);
+    printf("Trace file reads/writes by process.\n");
+    printf("\n");
+    printf("Options:\n");
+    printf("  -C, --noclear       Don't clear the screen\n");
+    printf("  -s, --sort SORT     Sort columns, default all [all, io, bytes, time]\n");
+    printf("  -r, --rows ROWS     Maximum rows to print, default 20\n");
+    printf("  -p, --pid PID       Process ID to trace\n");
+    printf("  -v, --verbose       Verbose debug output\n");
+    printf("  -h, --help          Display this help message\n");
+    printf("\n");
+    printf("Examples:\n");
+    printf("  %s                  # file I/O top, refresh every 1s\n", prog_name);
+    printf("  %s 5 10            # 5s summaries, 10 times\n", prog_name);
+    printf("  %s -p 181          # only trace PID 1216\n", prog_name);
+    printf("\n");
 }
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
@@ -225,14 +146,13 @@ static int sort_column(const void *obj1, const void *obj2)
 static void parse_disk_stat(void)
 {
 	FILE *fp;
-	char *line;
-	size_t zero;
+	char *line = NULL;
+	size_t zero = 0;
 
 	fp = fopen("/proc/diskstats", "r");
 	if (!fp)
 		return;
 
-	zero = 0;
 	while (getline(&line, &zero, fp) != -1) {
 		struct disk disk;
 
@@ -257,7 +177,8 @@ static void parse_disk_stat(void)
 	return;
 err:
 	fprintf(stderr, "realloc or malloc failed\n");
-
+	free(line);
+	if (fp) fclose(fp);
 	free_vector(disks);
 }
 
@@ -388,30 +309,127 @@ static void blk_account_io_set_autoload(struct biotop_bpf *obj,
 
 int main(int argc, char **argv)
 {
-	static const struct argp argp = {
-		.options = opts,
-		.parser = parse_arg,
-		.doc = argp_program_doc,
+	static struct option long_options[] = {
+		{"noclear", no_argument, 0, 'C'},
+		{"sort", required_argument, 0, 's'},
+		{"rows", required_argument, 0, 'r'},
+		{"pid", required_argument, 0, 'p'},
+		{"verbose", no_argument, 0, 'v'},
+		{"help", no_argument, 0, 'h'},
+		{0, 0, 0, 0}
 	};
 	struct biotop_bpf *obj;
 	struct ksyms *ksyms;
-	int err;
+	int err = 0;
+	int opt;
+	int pos_args = 0;
+	
+	// Parse command line options
+	while ((opt = getopt_long(argc, argv, "Cs:r:p:vh", long_options, NULL)) != -1) {
+		long rows, pid;
+		
+		switch (opt) {
+		case 'C':
+			clear_screen = false;
+			break;
+		case 's':
+			if (!strcmp(optarg, "all")) {
+				sort_by = ALL;
+			} else if (!strcmp(optarg, "io")) {
+				sort_by = IO;
+			} else if (!strcmp(optarg, "bytes")) {
+				sort_by = BYTES;
+			} else if (!strcmp(optarg, "time")) {
+				sort_by = TIME;
+			} else {
+				warn("invalid sort method: %s\n", optarg);
+				print_usage(argv[0]);
+				return 1;
+			}
+			break;
+		case 'r':
+			errno = 0;
+			rows = strtol(optarg, NULL, 10);
+			if (errno || rows <= 0) {
+				warn("invalid rows: %s\n", optarg);
+				print_usage(argv[0]);
+				return 1;
+			}
+			output_rows = rows;
+			if (output_rows > OUTPUT_ROWS_LIMIT)
+				output_rows = OUTPUT_ROWS_LIMIT;
+			break;
+		case 'p':
+			errno = 0;
+			pid = strtol(optarg, NULL, 10);
+			if (errno || pid <= 0) {
+				warn("Invalid PID: %s\n", optarg);
+				print_usage(argv[0]);
+				return 1;
+			}
+			target_pid = pid;
+			break;
+		case 'v':
+			verbose = true;
+			break;
+		case 'h':
+			print_usage(argv[0]);
+			return 0;
+		case '?':
+			// getopt already printed an error message
+			print_usage(argv[0]);
+			return 1;
+		default:
+			warn("unexpected option\n");
+			print_usage(argv[0]);
+			return 1;
+		}
+	}
+	
+	// Parse positional arguments
+	for (int i = optind; i < argc; i++) {
+		errno = 0;
+		if (pos_args == 0) {
+			interval = strtol(argv[i], NULL, 10);
+			if (errno || interval <= 0) {
+				warn("invalid interval\n");
+				print_usage(argv[0]);
+				return 1;
+			}
+		} else if (pos_args == 1) {
+			count = strtol(argv[i], NULL, 10);
+			if (errno || count <= 0) {
+				warn("invalid count\n");
+				print_usage(argv[0]);
+				return 1;
+			}
+		} else {
+			warn("unrecognized positional argument: %s\n", argv[i]);
+			print_usage(argv[0]);
+			return 1;
+		}
+		pos_args++;
+	}
 
-	err = argp_parse(&argp, argc, argv, 0, NULL, NULL);
-	if (err)
-		return err;
-
+	// Set libbpf print callback early
 	libbpf_set_print(libbpf_print_fn);
+
+	// Initialize disks vector
+	disks.nr = 0;
+	disks.capacity = 0;
+	disks.elems = NULL;
+
+	// Parse disk stats before opening BPF object
+	parse_disk_stat();
 
 	obj = biotop_bpf__open();
 	if (!obj) {
 		warn("failed to open BPF object\n");
+		free_vector(disks);
 		return 1;
 	}
 
 	obj->rodata->target_pid = target_pid;
-
-	parse_disk_stat();
 
 	ksyms = ksyms__load();
 	if (!ksyms) {
@@ -466,7 +484,8 @@ int main(int argc, char **argv)
 cleanup:
 	ksyms__free(ksyms);
 	free_vector(disks);
-	biotop_bpf__destroy(obj);
+	if (obj)
+		biotop_bpf__destroy(obj);
 
 	return err != 0;
 }
