@@ -31,7 +31,7 @@ COMMON_OBJ = \
         $(OUTPUT)/compat.o
 
 APPS = minimal minimal_legacy minimal_ns bootstrap uprobe kprobe fentry \
-       usdt sockfilter tc ksyscall task_iter lsm profile biotop netqtop tc_syncookie tcpstates wg_handshake
+       usdt sockfilter tc ksyscall task_iter lsm profile biotop netqtop tc_syncookie tcpstates wg_handshake mptcpify
 
 # Installation directories (configurable)
 PREFIX ?= /usr/local
